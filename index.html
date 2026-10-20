@@ -86,6 +86,7 @@
     .cover-sub { font-family: var(--serif); font-size: clamp(1.3rem, 1.9vw, 1.7rem); font-weight: 300; font-style: italic; line-height: 1.4; color: var(--text-dim); max-width: 500px; }
     .cover-desc { color: var(--text-dim); font-size: 13px; line-height: 1.8; max-width: 460px; }
     .cover-art { position: relative; aspect-ratio: 1; background: #000; border: 1px solid var(--line); overflow: hidden; max-width: 520px; margin-left: auto; width: 100%; }
+    
     .canvas-slot { position: absolute; inset: 0; overflow: hidden; }
     .canvas-slot canvas {
       display: block !important;
@@ -94,6 +95,7 @@
       width: 100% !important; height: 100% !important;
       max-width: 100% !important; max-height: 100% !important;
     }
+    
     .cover-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; padding-top: 32px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-faint); }
     .cover-foot .k { display: block; color: var(--gold-soft); margin-bottom: 8px; }
     .cover-foot .v { color: var(--text-dim); letter-spacing: 0.1em; line-height: 1.7; }
@@ -711,21 +713,6 @@
 <script>
 // ============================================================
 // SKYLINE SERIES — GENERATIVE THEMED CITYSCAPES
-//
-// Same seed → many surfaces:
-//   • Cover, Plate, Frame — same seed
-//   • All 4 surfaces (Print, Scarf, Textile, Wall) — same seed
-//   • Archive — 8 unique seeds
-//
-// Rectangular surfaces tile the square composition to fill.
-//
-// Generative engine (preserved from source):
-//   • 8 themed cityscapes, each with its own palette + config
-//   • 6–11 buildings, sheared, with randomised width/height
-//   • Gridded facades (vertical + horizontal lines)
-//   • Windows in checker / stripes / diamond / random
-//   • Optional spires at theme-driven probability
-//   • Faint stars and outline sky shapes
 // ============================================================
 
 const prefix = 'Skyline-Series';
@@ -741,7 +728,7 @@ class SeededRandom {
   pick(arr) { return arr[Math.floor(this.rand() * arr.length)]; }
 }
 
-// ---- 8 themed cityscapes ---- (verbatim from source)
+// ---- 8 themed cityscapes ----
 const THEMES = [
   {
     name: 'Pinky Dream City',
@@ -815,13 +802,9 @@ function rgbaString(c) {
 
 // ============================================================
 // SKETCH FACTORY
-// tile: { cols, rows } — repeat the square composition N times
 // ============================================================
-function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
+function makeSketch({ slotId, seedValue, isMaster, maxFrames }) {
   const stopAfter = maxFrames || Infinity;
-  const tileCols = (tile && tile.cols) || 1;
-  const tileRows = (tile && tile.rows) || 1;
-
   let canvasW = 0;
   let canvasH = 0;
   let frameCount = 0;
@@ -837,6 +820,7 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
       p.createCanvas(canvasW, canvasH);
       p.colorMode(p.RGB, 255);
       p.strokeWeight(1);
+      p.noLoop();
 
       const canvasEl = p.canvas;
       canvasEl.style.position = 'absolute';
@@ -865,29 +849,14 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
         return;
       }
 
-      // Tile composition
-      const tileW = canvasW / tileCols;
-      const tileH = canvasH / tileRows;
-      const tileSize = Math.min(tileW, tileH);
-
-      for (let ty = 0; ty < tileRows; ty++) {
-        for (let tx = 0; tx < tileCols; tx++) {
-          const ox = tx * tileW + (tileW - tileSize) / 2;
-          const oy = ty * tileH + (tileH - tileSize) / 2;
-
-          p.push();
-          p.translate(ox, oy);
-          drawCity(p, tileSize, seedValue);
-          p.pop();
-        }
-      }
-
+      // Directly draw the composition to fill the entire canvas exactly
+      drawCity(p, canvasW, canvasH, seedValue);
       frameCount++;
     };
   };
 
-  // ---- Draw the city into a square of side `size` ----
-  function drawCity(p, size, seedValue) {
+  // ---- Draw the city to fill the canvas ----
+  function drawCity(p, w, h, seedValue) {
     const sr = new SeededRandom(seedValue);
     const theme = sr.pick(THEMES);
     const details = theme.details;
@@ -895,29 +864,33 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
     // Background
     p.background(theme.bg[0], theme.bg[1], theme.bg[2]);
 
-    const cs = size;
+    // Use the actual width and height for building placement
+    const maxDim = Math.max(w, h);
+    const minDim = Math.min(w, h);
+    
     const buildingCount = Math.floor(6 + sr.rand() * 6);
-    const spacing = 1 / buildingCount;
+    // Spacing as a fraction of width
+    const spacing = w / buildingCount;
 
     for (let i = 0; i < buildingCount; i++) {
-      const buildingWidth = spacing * cs * sr.range(0.5, 1.1);
-      const buildingHeight = cs * sr.range(0.5, 1.0);
-      const xOffset = i * spacing * cs * 0.9 + sr.range(-cs * 0.02, cs * 0.02);
-      const yBase = cs;
-      const tilt = sr.range(-0.03, 0.03) * cs;
+      const buildingWidth = spacing * sr.range(0.5, 1.1);
+      const buildingHeight = h * sr.range(0.5, 1.0);
+      const xOffset = i * spacing * 0.9 + sr.range(-w * 0.02, w * 0.02);
+      const yBase = h;
+      const tilt = sr.range(-0.03, 0.03) * minDim;
 
       // Building block
       const bCol = sr.pick(theme.building);
       p.fill(bCol[0], bCol[1], bCol[2]);
       p.push();
       p.translate(xOffset, 0);
-      p.shearX(tilt / cs);
+      p.shearX(tilt / minDim);
       p.rect(0, yBase - buildingHeight, buildingWidth, buildingHeight);
       p.pop();
 
       // Facade lines
       p.stroke(20, 15, 30);
-      p.strokeWeight(cs * 0.003);
+      p.strokeWeight(minDim * 0.003);
 
       const verticalLines = Math.floor(sr.range(details.vertLineRange[0] + 1, details.vertLineRange[1] + 3));
       for (let v = 0; v < verticalLines; v++) {
@@ -926,15 +899,15 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
       }
 
       const horizontalLines = Math.floor(sr.range(details.horLineRange[0] + 1, details.horLineRange[1] + 3));
-      for (let h = 0; h < horizontalLines; h++) {
-        const yPos = yBase - buildingHeight + (buildingHeight / horizontalLines) * h;
+      for (let hl = 0; hl < horizontalLines; hl++) {
+        const yPos = yBase - buildingHeight + (buildingHeight / horizontalLines) * hl;
         p.line(xOffset, yPos, xOffset + buildingWidth, yPos);
       }
       p.noStroke();
 
       // Windows
-      const rows = Math.floor(buildingHeight / (cs * 0.03));
-      const cols = Math.floor(buildingWidth / (cs * 0.03));
+      const rows = Math.floor(buildingHeight / (minDim * 0.03));
+      const cols = Math.floor(buildingWidth / (minDim * 0.03));
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           let shouldDraw = false;
@@ -948,9 +921,9 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
             p.fill(wCol[0], wCol[1], wCol[2]);
             const x = xOffset + c * (buildingWidth / cols);
             const y = yBase - buildingHeight + r * (buildingHeight / rows);
-            const w = buildingWidth / cols * sr.range(0.2, 0.7);
-            const h = buildingHeight / rows * sr.range(0.2, 0.7);
-            p.rect(x, y, w, h);
+            const ww = buildingWidth / cols * sr.range(0.2, 0.7);
+            const wh = buildingHeight / rows * sr.range(0.2, 0.7);
+            p.rect(x, y, ww, wh);
           }
         }
       }
@@ -972,9 +945,9 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
     // Stars
     const starCount = Math.floor(sr.range(18, 32));
     for (let s = 0; s < starCount; s++) {
-      const x = sr.rand() * cs;
-      const y = sr.rand() * cs * 0.42;
-      const sz = sr.range(0.004, 0.01) * cs;
+      const x = sr.rand() * w;
+      const y = sr.rand() * h * 0.42;
+      const sz = sr.range(0.004, 0.01) * minDim;
 
       p.noStroke();
       p.fill(theme.sky[0], theme.sky[1], theme.sky[2], sr.range(30, 60) / 255);
@@ -987,13 +960,13 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
     // Sky shapes
     for (let i = 0; i < 18; i++) {
       p.stroke(theme.sky[0], theme.sky[1], theme.sky[2], theme.sky[3] / 255);
-      p.strokeWeight(cs * 0.001);
+      p.strokeWeight(minDim * 0.001);
       p.noFill();
 
       const shapeType = Math.floor(sr.rand() * 3);
-      const sz = cs * sr.range(0.05, 0.2);
-      const x = sr.rand() * cs;
-      const y = sr.rand() * cs * 0.5;
+      const sz = minDim * sr.range(0.05, 0.2);
+      const x = sr.rand() * w;
+      const y = sr.rand() * h * 0.5;
 
       if (shapeType === 0) {
         p.triangle(x, y, x + sz, y - sz / 2, x + sz / 2, y + sz);
@@ -1063,10 +1036,10 @@ function attachVisibilityObserver(p5Instance, element) {
   obs.observe(element);
 }
 
-function createLiveP5({ slotId, seedValue, isMaster, maxFrames, tile, onCreated }) {
+function createLiveP5({ slotId, seedValue, isMaster, maxFrames, onCreated }) {
   whenSlotReady(slotId, (slot) => {
     slot.querySelectorAll('canvas').forEach(c => c.remove());
-    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }), slot);
+    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames }), slot);
     inst._frozen = false;
     attachVisibilityObserver(inst, slot);
     if (onCreated) onCreated(inst);
@@ -1082,7 +1055,6 @@ function drawPlate() {
     seedValue: seed,
     isMaster: true,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { plateP5 = inst; }
   });
 }
@@ -1096,7 +1068,6 @@ function drawCover() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { coverP5 = inst; }
   });
 }
@@ -1110,19 +1081,15 @@ function drawFramedPlate() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { frameP5 = inst; }
   });
 }
 
-// ============================================================
-// SURFACES — same seed as plate, tiled to fill aspect ratio
-// ============================================================
 const surfaceDefs = [
-  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint',   tile: { cols: 1, rows: 1 } },
-  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf',   tile: { cols: 3, rows: 1 } },
-  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile', tile: { cols: 2, rows: 2 } },
-  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall',    tile: { cols: 1, rows: 2 } }
+  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint' },
+  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf' },
+  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile' },
+  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall' }
 ];
 
 function drawSurfaces() {
@@ -1151,8 +1118,7 @@ function drawSurfaces() {
           slotId: slot.id || (slot.id = def.id + '-slot'),
           seedValue: seed,
           isMaster: false,
-          maxFrames: 2,
-          tile: def.tile
+          maxFrames: 2
         }),
         slot
       );
@@ -1161,9 +1127,6 @@ function drawSurfaces() {
   });
 }
 
-// ============================================================
-// ARCHIVE — 8 unique seeds
-// ============================================================
 const archiveSeeds = [];
 
 function initArchive() {
@@ -1227,8 +1190,7 @@ function drawArchive() {
           slotId: 'archive-slot-' + i,
           seedValue: archiveSeeds[i],
           isMaster: false,
-          maxFrames: 2,
-          tile: { cols: 1, rows: 1 }
+          maxFrames: 2
         }),
         slot
       );
@@ -1247,9 +1209,6 @@ function loadArchiveSeed(index) {
   document.getElementById('work').scrollIntoView({ behavior: 'smooth' });
 }
 
-// ============================================================
-// UI
-// ============================================================
 function updateUI() {
   const s = document.getElementById('seedDisplay');
   const t = document.getElementById('themeDisplay');
